@@ -17,8 +17,9 @@
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
 #include <linux/compat.h>
-#if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_SU)
+#ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs_def.h>
+#include <linux/version.h>
 #endif
 
 #include <linux/uaccess.h>
@@ -126,12 +127,6 @@ EXPORT_SYMBOL(vfs_getattr_nosec);
  * 0 will be returned on success, and a -ve error code if unsuccessful.
  */
 
-#ifdef CONFIG_KSU_SUSFS_SUS_SU
-extern bool susfs_is_sus_su_hooks_enabled __read_mostly;
-extern bool __ksu_is_allow_uid(uid_t uid);
-extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
-#endif
-
 int vfs_getattr(const struct path *path, struct kstat *stat,
 		u32 request_mask, unsigned int query_flags)
 {
@@ -175,6 +170,15 @@ int vfs_statx_fd(unsigned int fd, struct kstat *stat,
 }
 EXPORT_SYMBOL(vfs_statx_fd);
 
+#ifdef CONFIG_KSU_SUSFS
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
+#else
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
+#endif
+#endif
+
 /**
  * vfs_statx - Get basic and extra attributes by filename
  * @dfd: A file descriptor representing the base dir for a relative filename
@@ -197,15 +201,15 @@ int vfs_statx(int dfd, const char __user *filename, int flags,
 	int error = -EINVAL;
 	unsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;
 
-#ifdef CONFIG_KSU_SUSFS_SUS_SU
+#ifdef CONFIG_KSU_SUSFS
 	if (likely(susfs_is_current_proc_umounted())) {
 		goto orig_flow;
 	}
-	if (likely(susfs_is_sus_su_hooks_enabled) &&
-		unlikely(__ksu_is_allow_uid(current_uid().val)))
-	{
+
+	if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val))) {
 		ksu_handle_stat(&dfd, &filename, &flags);
 	}
+
 orig_flow:
 #endif
 
